@@ -18,14 +18,10 @@ namespace Netto.Public.Application.Services
     public class ApiExchangeRatesService : ICurrenciesService
     {
         private readonly HttpClient _client;
-        private readonly IOptions<ExchangeRatesOptions> _options;
-        private readonly IDatabase _cache;
 
         public ApiExchangeRatesService(HttpClient client, IOptions<ExchangeRatesOptions> options, IDatabase cache)
         {
             _client = client;
-            _options = options;
-            _cache = cache;
         }
 
         public async Task<IEnumerable<CurrencyModel>> GetCurrencies()

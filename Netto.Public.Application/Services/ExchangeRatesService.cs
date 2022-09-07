@@ -14,12 +14,12 @@ namespace Netto.Public.Application.Services
     {
         private readonly HttpClient _client;
         private readonly IOptions<ExchangeRatesOptions> _options;
-        private readonly IDatabase _cache;
-        public ExchangeRatesService(HttpClient client, IOptions<ExchangeRatesOptions> options, IDatabase cache)
+        private readonly ICurrenciesService _currenciesService;
+        public ExchangeRatesService(HttpClient client, IOptions<ExchangeRatesOptions> options, ICurrenciesService currenciesService)
         {
             _client = client;
             _options = options;
-            _cache = cache;
+            _currenciesService = currenciesService;
         }
             
         public async Task<IEnumerable<CurrencyExchangeRateModel>> GetExchangeRates(IEnumerable<string> currenciesFrom, string currencyTo)
@@ -41,8 +41,8 @@ namespace Netto.Public.Application.Services
 
             var exchangeRatesDictionary = JsonConvert.DeserializeObject<JsonExchangeRates>(responseBody).Rates;
 
-            var currenciesInfo = await GetCurrencies();
-
+            var currenciesInfo = await _currenciesService.GetCurrencies();
+            
             var exchangeRatesList = from exchangeRate in exchangeRatesDictionary
                 from currencyInfo in currenciesInfo
                 where exchangeRate.Key == currencyInfo.Code
@@ -60,53 +60,6 @@ namespace Netto.Public.Application.Services
             return exchangeRatesList;
         }
 
-        private async Task<IEnumerable<CurrencyModel>> GetCurrencies()
-        {
-            var currenciesList = new List<CurrencyModel>();
-
-            if (!_cache.KeyExists("currencies"))
-            {
-                var response = await _client.GetAsync("symbols");
-
-                if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                {
-                    throw new RequestLimitExceededException();
-                }
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-
-                var currenciesDictionary = JsonConvert.DeserializeObject<JsonCurrencies>(responseBody).Symbols;
-
-                currenciesList = currenciesDictionary.Select(currency =>
-                {
-                    _cache.SetAdd("currencies", JsonConvert.SerializeObject(currency));
-                    return new CurrencyModel()
-                    {
-                        Code = currency.Key,
-                        FullName = currency.Value
-                    };
-                }).ToList();
-
-                _cache.KeyExpire("currencies", new TimeSpan(1, 0, 0, 0));
-
-                return currenciesList;
-            }
-
-            var redisCurrenciesList = await _cache.SetMembersAsync("currencies");
-
-            currenciesList = redisCurrenciesList.Select(currency =>
-            {
-                var redisCurrencyModel = JsonConvert.DeserializeObject<RedisModel>(currency);
-                return new CurrencyModel()
-                {
-                    Code = redisCurrencyModel.Key,
-                    FullName = redisCurrencyModel.Value
-                };
-            }).ToList();
-
-            return currenciesList;
-        }
-        
         public async Task<double> GetPairExchangeRate(string currencyFrom, string currencyTo)
         {
             var response = await _client.GetAsync($"latest?symbols={currencyTo}&base={currencyFrom}");

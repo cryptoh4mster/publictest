@@ -17,13 +17,10 @@ namespace Netto.Public.Application.Services
 {
     public class RedisExchangeRatesService : ICurrenciesService
     {
-        private readonly HttpClient _client;
-        private readonly IOptions<ExchangeRatesOptions> _options;
         private readonly IDatabase _cache;
-        public RedisExchangeRatesService(HttpClient client, IOptions<ExchangeRatesOptions> options, IDatabase cache)
+
+        public RedisExchangeRatesService(IDatabase cache)
         {
-            _client = client;
-            _options = options;
             _cache = cache;
         }
 
