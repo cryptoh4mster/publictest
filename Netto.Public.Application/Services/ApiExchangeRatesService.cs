@@ -15,7 +15,7 @@ using StackExchange.Redis;
 
 namespace Netto.Public.Application.Services
 {
-    public class ApiExchangeRatesService : IExchangeRatesService
+    public class ApiExchangeRatesService : ICurrenciesService
     {
         private readonly HttpClient _client;
         private readonly IOptions<ExchangeRatesOptions> _options;
@@ -28,49 +28,7 @@ namespace Netto.Public.Application.Services
             _cache = cache;
         }
 
-        public async Task<IEnumerable<CurrencyExchangeRateModel>> GetExchangeRates(IEnumerable<string> currenciesFrom,
-            string currencyTo)
-        {
-            var currenciesFromStr = string.Join(",", currenciesFrom);
-
-            var response = await _client.GetAsync($"latest?symbols={currenciesFromStr}&base={currencyTo}");
-
-            if (response.StatusCode == HttpStatusCode.BadRequest)
-            {
-                throw new WrongCurrencyISOCodeException();
-            }
-
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                throw new RequestLimitExceededException();
-            }
-
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            var exchangeRatesDictionary = JsonConvert.DeserializeObject<JsonExchangeRates>(responseBody).Rates;
-
-            var currenciesInfo = await GetCurrencies();
-
-            var exchangeRatesList = from exchangeRate in exchangeRatesDictionary
-                from currencyInfo in currenciesInfo
-                where exchangeRate.Key == currencyInfo.Code
-                select new CurrencyExchangeRateModel()
-                {
-                    BuyingExchangeRateValue = Convert.ToDouble(exchangeRate.Value, CultureInfo.InvariantCulture) *
-                                              Convert.ToDouble(_options.Value.BuyingCalculateConstant),
-                    SellingExchangeRateValue = Convert.ToDouble(exchangeRate.Value, CultureInfo.InvariantCulture) *
-                                               Convert.ToDouble(_options.Value.SellingCalculateConstant),
-                    Currency = new CurrencyModel()
-                    {
-                        Code = currencyInfo.Code,
-                        FullName = currencyInfo.FullName
-                    }
-                };
-
-            return exchangeRatesList;
-        }
-
-        private async Task<IEnumerable<CurrencyModel>> GetCurrencies()
+        public async Task<IEnumerable<CurrencyModel>> GetCurrencies()
         {
             var currenciesList = new List<CurrencyModel>();
 
@@ -87,7 +45,6 @@ namespace Netto.Public.Application.Services
 
             currenciesList = currenciesDictionary.Select(currency =>
             {
-                _cache.SetAdd("currencies", JsonConvert.SerializeObject(currency));
                 return new CurrencyModel()
                 {
                     Code = currency.Key,
@@ -95,30 +52,7 @@ namespace Netto.Public.Application.Services
                 };
             }).ToList();
 
-            _cache.KeyExpire("currencies", new TimeSpan(1, 0, 0, 0));
-
             return currenciesList;
-        }
-
-        public async Task<double> GetPairExchangeRate(string currencyFrom, string currencyTo)
-        {
-            var response = await _client.GetAsync($"latest?symbols={currencyTo}&base={currencyFrom}");
-
-            if (response.StatusCode == HttpStatusCode.BadRequest)
-            {
-                throw new WrongCurrencyISOCodeException();
-            }
-
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                throw new RequestLimitExceededException();
-            }
-
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            var pairExchangeRate = JsonConvert.DeserializeObject<JsonExchangeRates>(responseBody).Rates.First().Value;
-
-            return Convert.ToDouble(pairExchangeRate, CultureInfo.InvariantCulture);
         }
     }
 }
