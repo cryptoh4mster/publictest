@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "iisSettings": {
+    "windowsAuthentication": false,
+    "anonymousAuthentication": true,
+    "iisExpress": {
+      "applicationUrl": "http://localhost:8742",
+      "sslPort": 44311
+    }
+  },
+  "profiles": {
+    "Netto.Public.API": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:7035;http://localhost:5035",
+      "dotnetRunMessages": true
+    },
+    "Docker": {
+      "commandName": "Docker",
+      "launchBrowser": true,
+      "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}/swagger",
+      "DockerfileRunArguments": "",
+      "environmentVariables": {
+        "ASPNETCORE_URLS": "http://+:80",
+        //"ASPNETCORE_HTTP_PORT": "51803",
+        "ASPNETCORE_ENVIRONMENT": "Local"
+      },
+      "httpPort": 51803,
+      "useSSL": false,
+      "sslPort": 44360
+    }
+  }
+}

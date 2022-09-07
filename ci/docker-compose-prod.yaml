@@ -1,0 +1,39 @@
+version: '3.7'
+services:
+  containerDb:
+   image: "postgres:14.5"
+   container_name: NettoPublic-Postgres-Test
+   ports:
+    - 54219:5432
+   volumes:
+     - pg_data_public:/var/lib/postgresql/data/pgdata
+   environment:
+     POSTGRES_PASSWORD: nettopass
+     POSTGRES_USER: netto
+     POSTGRES_DB: PublicTestDB
+     PGDATA: /var/lib/postgresql/data/pgdata
+   restart: always
+   networks:
+     - netto_public
+  web:
+    image: $AND_DOCKER_REGISTRY_NAME/$PROJECT-$APP:$CI_COMMIT_BRANCH
+    container_name: $APP-$CI_COMMIT_BRANCH
+    # build:      
+    #   context: .
+    #   dockerfile: ./CI/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    ports:
+      - 19219:80
+    links: 
+      - containerDb
+    restart: always
+    networks:
+      - netto_public 
+
+networks:
+  netto_public:
+    driver: bridge
+
+volumes:
+  pg_data_public:

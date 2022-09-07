@@ -1,0 +1,186 @@
+stages:
+  - build
+  - docker
+  - deploy
+
+variables:
+  PROJECT: netto-new
+  APP: public
+  GIT_DEPTH: 0
+
+# !===== BUILD AND TEST CODE WITH SONARQUBE =====
+
+build:
+  stage: build
+  tags: [test-docker]
+  variables:
+    OBJECTS_DIRECTORY: obj
+    NUGET_PACKAGES_DIRECTORY: .nuget
+    SOURCE_CODE_PATH: '*/'
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    paths:
+      - $SOURCE_CODE_PATH$OBJECTS_DIRECTORY/project.assets.json
+      - $SOURCE_CODE_PATH$OBJECTS_DIRECTORY/*.csproj.nuget.*
+      - $NUGET_PACKAGES_DIRECTORY
+  before_script:
+    - apt update && apt install -y openjdk-11-jdk > /dev/null
+    - dotnet tool install --global dotnet-sonarscanner --version 5.5.3 > /dev/null
+    - export PATH="$PATH:/root/.dotnet/tools"
+    # - '[[ "$CI_COMMIT_BRANCH" == "integration" ]] && cp -f $APPSETTINGS_DEV Netto.Public.API/appsettings.Development.json' #why?
+    - dotnet restore netto-new-public.sln --packages $NUGET_PACKAGES_DIRECTORY
+  script:
+    - dotnet-sonarscanner begin /k:"netto-new-$APP-$CI_COMMIT_BRANCH" /d:sonar.login="$SONAR_LOGIN" /d:sonar.host.url="$SONAR_HOST_URL"
+    - dotnet build netto-new-public.sln -c Release -o publish --no-restore
+    - dotnet-sonarscanner end /d:sonar.login="$SONAR_LOGIN"
+  artifacts:
+    name: $APP-$CI_COMMIT_BRANCH
+    paths:
+      - publish
+    expire_in: 10min
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "integration"
+    - if: $CI_COMMIT_BRANCH == "prod"
+      # variables:
+      #   CI_COMMIT_BRANCH: integration #why?
+
+# !===== BUILD DOCKER IMAGE AND UPLOAD IT TO THE REGISTRY =====+
+
+docker-test:
+  stage: docker
+  tags: [test-shell]
+  before_script:
+    - echo "$AND_DOCKER_REGISTRY_RW_PASS" | docker login -u nexus "$AND_DOCKER_REGISTRY" --password-stdin
+  script:
+    - docker build -f ci/Dockerfile --tag $AND_DOCKER_REGISTRY_NAME/$PROJECT-$APP:$CI_COMMIT_BRANCH --compress --build-arg BUILDKIT_INLINE_CACHE=1 .
+    - docker push $AND_DOCKER_REGISTRY_NAME/$PROJECT-$APP:$CI_COMMIT_BRANCH
+    - docker system prune -f
+  only:
+    - integration
+
+docker-prod:
+  stage: docker
+  tags: [prod-shell]
+  before_script:
+    - echo "$AND_DOCKER_REGISTRY_RW_PASS" | docker login -u nexus "$AND_DOCKER_REGISTRY" --password-stdin
+  script:
+    - docker build -f ci/Dockerfile --tag $AND_DOCKER_REGISTRY_NAME/$PROJECT-$APP:$CI_COMMIT_BRANCH --compress --build-arg BUILDKIT_INLINE_CACHE=1 .
+    - docker push $AND_DOCKER_REGISTRY_NAME/$PROJECT-$APP:$CI_COMMIT_BRANCH
+    - docker system prune -f
+  only:
+    - prod
+
+
+# !===== DEPLOY APPLICATION =====
+
+deploy-test:
+  stage: deploy
+  tags: [test-shell]
+  before_script:
+    - echo "$AND_DOCKER_REGISTRY_RO_PASS" | docker login -u nexus-ro "$AND_DOCKER_REGISTRY" --password-stdin
+    # - touch .env | cp -f $ENV_DEV .env #
+  script:
+    - docker stop $APP-$CI_COMMIT_BRANCH || true
+    - docker rm $APP-$CI_COMMIT_BRANCH || true
+    - docker rmi -f $AND_DOCKER_REGISTRY_NAME/$PROGECT-$APP:$CI_COMMIT_BRANCH || true
+    - docker-compose -f ci/docker-compose-test.yaml pull || true #
+    - docker-compose -f ci/docker-compose-test.yaml up --force-recreate -d
+    - docker system prune -f
+  only:
+    - integration
+
+deploy-prod:
+  stage: deploy
+  tags: [prod-shell]
+  before_script:
+    - echo "$AND_DOCKER_REGISTRY_RO_PASS" | docker login -u nexus-ro "$AND_DOCKER_REGISTRY" --password-stdin
+    # - touch .env | cp -f $ENV_DEV .env #
+  script:
+    - docker stop $APP-$CI_COMMIT_BRANCH || true
+    - docker rm $APP-$CI_COMMIT_BRANCH || true
+    - docker rmi -f $AND_DOCKER_REGISTRY_NAME/$PROGECT-$APP:$CI_COMMIT_BRANCH || true
+    - docker-compose -f ci/docker-compose-prod.yaml pull || true
+    - docker-compose -f ci/docker-compose-prod.yaml up --force-recreate -d
+    - docker system prune -f
+  only:
+    - prod
+
+# stages:
+#   - build
+#   - docker
+#   - deploy
+
+# variables:
+#   PROJECT: netto-new
+#   APP: public
+#   GIT_DEPTH: 0
+
+# # !===== BUILD AND TEST CODE WITH SONARQUBE =====
+
+# build:
+#   stage: build
+#   tags: [test-docker]
+#   variables:
+#     OBJECTS_DIRECTORY: obj
+#     NUGET_PACKAGES_DIRECTORY: .nuget
+#     SOURCE_CODE_PATH: '*/'
+#   cache:
+#     key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+#     paths:
+#       - $SOURCE_CODE_PATH$OBJECTS_DIRECTORY/project.assets.json
+#       - $SOURCE_CODE_PATH$OBJECTS_DIRECTORY/*.csproj.nuget.*
+#       - $NUGET_PACKAGES_DIRECTORY
+#   before_script:
+#     - apt update && apt install -y openjdk-11-jdk > /dev/null
+#     - dotnet tool install --global dotnet-sonarscanner --version 5.5.3 > /dev/null
+#     - export PATH="$PATH:/root/.dotnet/tools"
+
+#     - '[[ "$CI_COMMIT_BRANCH" == "integration" ]] && cp -f $APPSETTINGS_DEV Netto.Public.API/appsettings.Development.json'
+#     - dotnet restore netto-new-public.sln --packages $NUGET_PACKAGES_DIRECTORY
+#   script:
+#     - dotnet-sonarscanner begin /k:"netto-new-$APP-$CI_COMMIT_BRANCH" /d:sonar.login="$SONAR_LOGIN" /d:sonar.host.url="$SONAR_HOST_URL"
+#     - dotnet build netto-new-public.sln -c Release -o publish --no-restore
+#     - dotnet-sonarscanner end /d:sonar.login="$SONAR_LOGIN"
+#   artifacts:
+#     name: $APP-$CI_COMMIT_BRANCH
+#     paths:
+#       - publish
+#     expire_in: 30min
+#   rules:
+#     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+#     - if: $CI_COMMIT_BRANCH == "integration"
+#       variables:
+#         CI_COMMIT_BRANCH: integration
+
+# # !===== BUILD DOCKER IMAGE AND UPLOAD IT TO THE REGISTRY =====+
+
+# docker:
+#   stage: docker
+#   tags: [test-shell]
+#   before_script:
+#     - echo "$AND_DOCKER_REGISTRY_RW_PASS" | docker login -u nexus "$AND_DOCKER_REGISTRY" --password-stdin
+#   script:
+#     - docker build -f ci/Dockerfile --tag $AND_DOCKER_REGISTRY_NAME/$PROJECT-$APP:$CI_COMMIT_BRANCH --compress --build-arg BUILDKIT_INLINE_CACHE=1 .
+#     - docker push $AND_DOCKER_REGISTRY_NAME/$PROJECT-$APP:$CI_COMMIT_BRANCH
+#     - docker system prune -f
+#   only:
+#     - integration
+
+# # !===== DEPLOY APPLICATION =====
+
+# deploy:
+#   stage: deploy
+#   tags: [test-shell]
+#   before_script:
+#     - echo "$AND_DOCKER_REGISTRY_RO_PASS" | docker login -u nexus-ro "$AND_DOCKER_REGISTRY" --password-stdin
+#     - touch .env | cp -f $ENV_DEV .env
+#   script:
+#     - docker stop $APP-$CI_COMMIT_BRANCH || true
+#     - docker rm $APP-$CI_COMMIT_BRANCH || true
+#     - docker rmi -f $AND_DOCKER_REGISTRY_NAME/$PROGECT-$APP:$CI_COMMIT_BRANCH || true
+#     - docker-compose -f ci/docker-compose-int.yaml pull || true
+#     - docker-compose -f ci/docker-compose-int.yaml up --force-recreate -d
+#     - docker system prune -f
+#   only:
+#     - integration
